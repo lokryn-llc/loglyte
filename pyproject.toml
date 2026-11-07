@@ -1,0 +1,60 @@
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "loglyte"
+version = "1.0.0"
+description = "Fast, structured Python logging with one global logger and TOML configuration."
+readme = "README.md"
+authors = [{ name = "Daniel Wallace" }]
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+keywords = ["logging", "structured-logging", "toml", "observability", "performance"]
+dependencies = ["tomli>=2.0; python_version < '3.11'"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: System :: Logging",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/lokryn-llc/loglyte"
+Repository = "https://github.com/lokryn-llc/loglyte"
+Issues = "https://github.com/lokryn-llc/loglyte/issues"
+Changelog = "https://github.com/lokryn-llc/loglyte/blob/main/CHANGELOG.md"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.5.0",
+    "loguru>=0.7.3",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "structlog>=26.1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["error"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+extend-exclude = [".uv-cache", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "C4", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["loglyte"]

@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+.venv/
+.uv-cache/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+*.log
+.DS_Store
+
+# Local integration smoke services; never ship their configuration or output.
+.local/
