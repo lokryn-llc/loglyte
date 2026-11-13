@@ -1,11 +1,20 @@
 # Benchmark results
 
-Recorded 2026-08-04. Reproduce with:
+> **Historical snapshot.** These numbers were recorded on 2026-08-04 with the
+> pre-1.0 API (the `@info` decorator and the since-removed `ablation.py`). They
+> are kept for reference until a new baseline is recorded with the current harness.
+
+Run the current benchmark with:
 
 ```bash
-uv run python benchmarks/bench.py       # cross-library comparison
-uv run python benchmarks/ablation.py    # where the difference comes from
+uv run python -m benchmarks              # full run; summary in the terminal
+uv run python -m benchmarks --quick
 ```
+
+Each run writes a detailed report and JSON to `benchmarks/results/` (the newest
+three runs are kept).
+
+Snapshot details:
 
 Machine: Apple Silicon (darwin, arm64), CPython 3.13.7.
 50,000 records per measurement, best of 5 repetitions, timed **end-to-end** —
@@ -107,26 +116,29 @@ Switching off stdlib's optional work, one knob at a time:
 | + no thread/proc info  |     3,593 |      1.24x |   -217 |
 | + batched writes       |     3,476 |      1.28x |   -117 |
 | loglyte (direct)       |       917 |      4.86x | -2,559 |
-| loglyte (`@info`)      |     1,039 |      4.29x |   +122 |
+| loglyte (decorated)    |     1,039 |      4.29x |   +122 |
 
 Tuning stdlib to the bone recovers **1.28x**. The remaining **3.8x** is
 architectural — deferred formatting and batched dispatch — and is not
 configuration you can turn on in stdlib.
 
-The `@info` decorator costs about **122 ns/call** (~13%). The main benchmark
-calls the logger directly; idiomatic decorated usage is the last row.
+The decorator (then `@info`, now `@logger`) cost about **122 ns/call** (~13%)
+in this snapshot. The current harness tracks decorator and binding costs in its
+`callpath` and `callpath-filtered` groups.
 
 ## Honest caveats
 
 * **loglyte is slower on filtered records** (114 ns vs stdlib's 64 ns). stdlib's
   `isEnabledFor` short-circuit is extremely tight. If your hot path is dominated
   by disabled debug calls, loglyte is not the win.
-* **Delivery is asynchronous.** The timings include the drain, so the batching
-  advantage is counted honestly — but a `SIGKILL` can still lose buffered
+* **Delivery is buffered.** Records are held in memory and written in batches;
+  the batch that reaches `flush_threshold` is formatted and written on the
+  calling thread, and the background thread only flushes on `flush_interval`.
+  The timings include the final drain, but a `SIGKILL` can still lose buffered
   records. stdlib and non-enqueue loguru cannot.
-* **loglyte records carry no file/line.** stdlib and loguru walk the stack on
-  every call to capture them; loglyte captures the function name once, at
-  decoration. That is a capability difference, and it is roughly 648 ns of the
+* **loglyte records carry no file/line by default.** stdlib and loguru walk the
+  stack on every call to capture them; loglyte does not unless you opt in with
+  `logger.with_location()` (not yet benchmarked). That is a capability difference, and it is roughly 648 ns of the
   gap (the `no caller introspect` row).
 * **Absolute numbers are machine-specific.** Ratios travel better.
 * Output is *similar*, not byte-identical, across libraries. The `bytes/rec`

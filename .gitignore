@@ -15,3 +15,6 @@ dist/
 
 # Local integration smoke services; never ship their configuration or output.
 .local/
+
+# Local benchmark runs (bench.py keeps the newest three).
+benchmarks/results/
