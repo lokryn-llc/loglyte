@@ -30,16 +30,30 @@ Contents: [Bugs](#bugs) · [Performance](#performance) · [Code quality](#code-q
   ```python
   import gzip, os, tempfile, loglyte
   from loglyte import FileSink, logger
+
   with tempfile.TemporaryDirectory() as d:
-      loglyte.configure([FileSink(os.path.join(d, "app.log"), max_bytes=64 * 1024,
-                                  retention_count=None, compression="gzip")],
-                        flush_interval=0)
+      loglyte.configure(
+          [
+              FileSink(
+                  os.path.join(d, "app.log"),
+                  max_bytes=64 * 1024,
+                  retention_count=None,
+                  compression="gzip",
+              )
+          ],
+          flush_interval=0,
+      )
       for i in range(20_000):
           logger.info("Processing item", item_id=i)
       logger.shutdown()
-      on_disk = sum((gzip.open(os.path.join(d, f)).read() if f.endswith(".gz")
-                     else open(os.path.join(d, f), "rb").read()).count(b"\n")
-                    for f in os.listdir(d))
+      on_disk = sum(
+          (
+              gzip.open(os.path.join(d, f)).read()
+              if f.endswith(".gz")
+              else open(os.path.join(d, f), "rb").read()
+          ).count(b"\n")
+          for f in os.listdir(d)
+      )
       print(on_disk)  # far fewer than 20,000; varies with timing
   ```
 - **Suggested fix:** treat a candidate as taken if either it or `candidate + ".gz"`
@@ -57,11 +71,14 @@ Contents: [Bugs](#bugs) · [Performance](#performance) · [Code quality](#code-q
   ```python
   import os, tempfile, loglyte
   from loglyte import FileSink, logger
+
   with tempfile.TemporaryDirectory() as d:
       open(os.path.join(d, "app.log.audit"), "w").write("important\n")
-      loglyte.configure([FileSink(os.path.join(d, "app.log"), max_bytes=2_000,
-                                  retention_count=1)],
-                        flush_interval=0, flush_threshold=10)
+      loglyte.configure(
+          [FileSink(os.path.join(d, "app.log"), max_bytes=2_000, retention_count=1)],
+          flush_interval=0,
+          flush_threshold=10,
+      )
       for i in range(2_000):
           logger.info("x", i=i)
       logger.shutdown()
@@ -85,9 +102,10 @@ Contents: [Bugs](#bugs) · [Performance](#performance) · [Code quality](#code-q
 - **Reproduce:**
   ```python
   from loglyte import logger
+
   scope = logger.bind(request_id="r1")
   with scope:
-      with scope:      # RuntimeError on the outer exit
+      with scope:  # RuntimeError on the outer exit
           pass
   ```
   Sharing one scope between two threads that are inside it at the same time raises too.
