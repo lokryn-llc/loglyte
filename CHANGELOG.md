@@ -15,7 +15,7 @@ All notable changes to Loglyte are documented here.
   rotation name exactly; `app.log.audit`, `app.log.backup`, another sink's file and the
   `app.log.lock` sidecar are neither deleted nor counted against `retention_count`.
   Archives written by earlier versions (`<log>.<timestamp>[.<counter>]`) are still pruned.
-- **Processes rotating one file without `process_safe` no longer collide or crash.**
+- **On POSIX, processes rotating one file without `process_safe` no longer collide on names or fail when another process rotates first.**
   Claiming the name with `O_EXCL` means two processes cannot pick the same target, and a
   process that loses a rotation race -- at the size check or at the rename -- skips that
   rotation instead of raising `FileNotFoundError`. With `compression = "gzip"`, unlocked

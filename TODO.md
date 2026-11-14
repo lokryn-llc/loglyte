@@ -100,6 +100,9 @@ Contents: [Bugs](#bugs) · [Performance](#performance) · [Code quality](#code-q
 - **Fixed already:** concurrent rotations can no longer pick the same name (`O_EXCL`
   claim), and losing a rotation race is no longer a `FileNotFoundError` at either the
   size check or the rename.
+- **Windows:** unlocked concurrent rotation can fail with `PermissionError` because
+  Windows prevents renaming files held open by another writer. The unlocked
+  concurrency tests require POSIX semantics; use `process_safe=True` on Windows.
 - **Remaining, gzip (data loss):** a writer in another process that opened `app.log`
   before a rotation can append after the file was compressed and deleted; that append
   is lost. 4 unlocked writers released together lost 1-2 of 160 records in 13 of 40

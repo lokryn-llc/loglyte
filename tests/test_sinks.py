@@ -392,6 +392,9 @@ def test_log_rotated_away_mid_check_is_not_an_error(tmp_path, monkeypatch):
     assert "after the race" in path.read_text()
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="Unlocked concurrent rotation requires POSIX open-file rename semantics"
+)
 def test_unlocked_processes_rotating_one_file_lose_nothing(tmp_path):
     """Regression: without process_safe, concurrent rotations picked the same name
     (the later rename overwrote the earlier archive) and the losers crashed with
@@ -406,6 +409,9 @@ def test_unlocked_processes_rotating_one_file_lose_nothing(tmp_path):
     assert messages == sorted(f"w{index}-{number}" for index in range(4) for number in range(40))
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="Unlocked concurrent rotation requires POSIX open-file rename semantics"
+)
 def test_unlocked_gzip_processes_rotating_one_file_do_not_crash_or_collide(tmp_path):
     """The gzip variant of the race. Every process finishes, every archive is a
     readable gzip file under its own name, and no uncompressed file is left behind.
@@ -426,6 +432,9 @@ def test_unlocked_gzip_processes_rotating_one_file_do_not_crash_or_collide(tmp_p
         _read_log(archive)
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="Windows does not permit rotating a file held open by another writer"
+)
 @pytest.mark.parametrize(
     "compression",
     [

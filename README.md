@@ -128,6 +128,10 @@ token keeps rotations unique when several land in the same second. `retention_co
 only ever counts and deletes files matching that exact pattern, so a neighbouring
 `app.log.audit` or `app.log.backup` is never touched.
 
+Concurrent processes must use `process_safe = true`. Unlocked rotation relies on
+POSIX open-file rename semantics; Windows can reject a rotation while another
+writer holds the file open. Even on POSIX, unlocked gzip rotation can lose records.
+
 ## Integrations and escape hatches
 
 `get_logger(name)`, `catch()`, `configure()`, and custom sinks remain available for
