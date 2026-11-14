@@ -122,6 +122,12 @@ Set `capture_warnings = true` in `[loglyte]` to route Python warnings through th
 configured sinks. Gzip compression runs after a file rotates, on the dispatcher rather
 than the application thread.
 
+Rotated files are named `<log>.<timestamp>.<token>`, for example
+`app.log.2026-08-10_14-03-01.9f2c7ab4`, with `.gz` appended when compression is on. The
+token keeps rotations unique when several land in the same second. `retention_count`
+only ever counts and deletes files matching that exact pattern, so a neighbouring
+`app.log.audit` or `app.log.backup` is never touched.
+
 ## Integrations and escape hatches
 
 `get_logger(name)`, `catch()`, `configure()`, and custom sinks remain available for
@@ -174,3 +180,10 @@ uv run ruff check .
 ## License
 
 MIT License. See [LICENSE](LICENSE).
+
+## Synthetic test data
+
+All email addresses and credential-like values in the tests and benchmarks are
+fictional fixtures used to verify redaction. `ada@example.test` is a dummy email
+address; values such as `secret`, `abc`, and `hunter2` are dummy strings and do not
+authenticate to any service. No live credentials are required for these fixtures.

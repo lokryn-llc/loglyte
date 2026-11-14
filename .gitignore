@@ -18,3 +18,17 @@ dist/
 
 # Local benchmark runs (bench.py keeps the newest three).
 benchmarks/results/
+
+# Additional upload hygiene: dependencies, generated reports, and local secrets.
+venv/
+env/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+coverage/
+.tox/
+.nox/
+.env
+.env.*
+!.env.example

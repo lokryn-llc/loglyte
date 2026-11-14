@@ -19,7 +19,10 @@ Contents: [Bugs](#bugs) · [Performance](#performance) · [Code quality](#code-q
 ## Bugs
 
 ### B1. Rotation with gzip compression silently loses records (data loss)
-- [ ] Fix
+- [x] Fixed: rotated names carry a random token and both the plain and `.gz` name are
+  claimed with `O_EXCL` before the move. Regression tests:
+  `test_gzip_rotations_within_one_second_keep_every_archive`,
+  `test_rotation_target_is_claimed_not_merely_checked`.
 - **Where:** `FileSink._rotated_path()` / `_rotate_and_cleanup()` in `loglyte/sinks.py`.
 - **Cause:** `_rotated_path()` only checks that the *uncompressed* name is free. After
   compression that name is free again, so every rotation within the same second reuses
@@ -62,7 +65,10 @@ Contents: [Bugs](#bugs) · [Performance](#performance) · [Code quality](#code-q
   test for several rotations within one second.
 
 ### B2. Retention cleanup deletes unrelated files that share the log's name (data loss)
-- [ ] Fix
+- [x] Fixed: retention matches the rotation name exactly (including legacy names) instead
+  of globbing `app.log.*`. Regression tests: `test_retention_ignores_files_it_did_not_create`,
+  `test_retention_counts_only_rotated_logs`, `test_retention_still_prunes_legacy_rotated_names`,
+  `test_retention_leaves_a_neighbouring_sinks_files_alone`.
 - **Where:** `FileSink._rotate_and_cleanup()`; it globs `f"{file_path}.*"`.
 - **Cause:** every file whose name starts with `app.log.` counts as a rotated log:
   `app.log.audit`, `app.log.json`, another sink's file, a user's backup.
@@ -87,6 +93,22 @@ Contents: [Bugs](#bugs) · [Performance](#performance) · [Code quality](#code-q
 - **Suggested fix:** only consider names that match the rotation format exactly
   (`app.log.YYYY-MM-DD_HH-MM-SS[.N][.gz]`), e.g. with a regular expression.
 - **Verify with:** a unit test like the snippet above.
+
+### B6. Unlocked multi-process rotation: gzip can still lose records; extra archives
+- [ ] Decide (options in the rotation review)
+- **Where:** `FileSink._should_rotate()` / `_rotate_and_cleanup()`, `process_safe=False` only.
+- **Fixed already:** concurrent rotations can no longer pick the same name (`O_EXCL`
+  claim), and losing a rotation race is no longer a `FileNotFoundError` at either the
+  size check or the rename.
+- **Remaining, gzip (data loss):** a writer in another process that opened `app.log`
+  before a rotation can append after the file was compressed and deleted; that append
+  is lost. 4 unlocked writers released together lost 1-2 of 160 records in 13 of 40
+  runs. Uncompressed rotation is unaffected: the append follows the renamed file.
+- **Remaining, both modes (no loss):** each writer decides to rotate on its own view of
+  the size, so a stale decision can rotate a file another process only just created,
+  producing small or empty archives.
+- **Pinned by:** `test_record_written_through_a_handle_opened_before_rotation_is_kept`
+  (`gzip` case is `xfail(strict=True)`; remove the mark when fixed).
 
 ### B3. A `logger.bind()` scope cannot be re-entered or shared; context can leak
 - [ ] Fix
@@ -212,8 +234,8 @@ Measurement quality
   the container differed by -29% to +200%, so this matters.
 - [ ] A pinned baseline (`--save-baseline`, e.g. one per release) that rotation never
   deletes; compare with both the baseline and the last run.
-- [ ] Decide how known library bugs affect the exit code. B1 currently makes every
-  default run exit 1. Option: a short list of known issues that are still reported but
+- [ ] Decide how known library bugs affect the exit code. (B1 used to make every
+  default run exit 1; `--only rotation-gzip` now passes.) Option: a short list of known issues that are still reported but
   only new problems fail the run.
 - [ ] Layer 2 reported "lack of fit" between 1.3 and 2.6 across container runs. On the
   reference machine, check whether features interact or the machine drifted. If real,
@@ -238,8 +260,8 @@ Coverage still missing
   default in `exceptions` and `web-request`; the default dominates those numbers.
 - [ ] An async web workload (requests as asyncio tasks), including B3's shared-scope
   pattern once fixed.
-- [ ] Regression cases for B2 and B3 once fixed (retention next to an unrelated file;
-  a shared bind scope across threads).
+- [ ] Regression cases for B3 once fixed (a shared bind scope across threads). B2's
+  cases now live in `tests/test_sinks.py`.
 
 Feature matrix (layer 2)
 - [ ] Factors left out because they are not simple on/off: ISO timestamps (only affect

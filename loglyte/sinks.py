@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import atexit
 import contextlib
-import glob
 import gzip
 import json
 import math
 import os
 import random
+import re
 import shutil
 import sys
 import threading
@@ -38,6 +38,22 @@ LEVEL_MAP = {
 }
 
 _OVERFLOW_POLICIES = frozenset({"drop_oldest", "drop_newest"})
+
+#: A rotated log is ``<log path>.<timestamp>.<token>``, plus ``.gz`` when compressed.
+#: The timestamp keeps a directory listing readable and sorted; the token makes the
+#: name unique, since ``strftime`` cannot distinguish two rotations in one second.
+_ROTATION_STAMP = "%Y-%m-%d_%H-%M-%S"
+_ROTATION_TOKEN_BYTES = 4
+_ROTATION_CLAIM_ATTEMPTS = 8
+
+#: Matches the names above, and the ``<timestamp>[.<counter>]`` form written before
+#: tokens existed, so archives from an older loglyte are still pruned after an upgrade.
+#: Anchored and fully specified: an operator's ``app.log.backup`` must never match.
+_ROTATED_SUFFIX = (
+    r"\.\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}"  # timestamp
+    r"(?:\.[0-9a-f]{1,8})?"  # token, or a legacy counter
+    r"(?:\.gz)?"  # compressed, or a leftover pair from an interrupted compression
+)
 _FILE_LOCKS: dict[str, threading.Lock] = {}
 _FILE_LOCKS_LOCK = threading.Lock()
 
@@ -107,6 +123,13 @@ def _report_internal_error(context: str) -> None:
     with contextlib.suppress(Exception):
         sys.stderr.write(f"--- loglyte internal error ({context}) ---\n")
         traceback.print_exc(file=sys.stderr)
+
+
+def _remove_quietly(paths: Iterable[str]) -> None:
+    """Delete paths, ignoring the ones that are already gone."""
+    for path in paths:
+        with contextlib.suppress(OSError):
+            os.remove(path)
 
 
 def _write_all(stream: Any, payload: str) -> None:
@@ -403,6 +426,7 @@ class FileSink(BaseSink):
         "compression",
         "process_safe",
         "_last_rotation_time",
+        "_rotated_name",
     )
 
     def __init__(
@@ -452,6 +476,8 @@ class FileSink(BaseSink):
         self.process_safe = process_safe
         # Monotonic: rotation intervals must not be affected by NTP steps or DST.
         self._last_rotation_time = time.monotonic()
+        # re.escape: a log named ``app[0].log`` is a literal name, not a character class.
+        self._rotated_name = re.compile(re.escape(os.path.basename(file_path)) + _ROTATED_SUFFIX)
 
         parent = os.path.dirname(os.path.abspath(file_path))
         os.makedirs(parent, exist_ok=True)
@@ -460,37 +486,66 @@ class FileSink(BaseSink):
         elapsed = time.monotonic() - self._last_rotation_time
         time_triggered = self.rotation_seconds is not None and elapsed >= self.rotation_seconds
 
-        if not os.path.exists(self.file_path):
+        try:
+            # One stat, not exists() then getsize(): another process can rotate the
+            # file away between two calls, and the second one would raise.
+            size = os.stat(self.file_path).st_size
+        except FileNotFoundError:
             # Nothing to rotate, but keep the interval clock moving so an idle period
             # does not force a spurious rotation on the very next write.
             if time_triggered:
                 self._last_rotation_time = time.monotonic()
             return False
 
-        size_triggered = self.max_bytes > 0 and os.path.getsize(self.file_path) >= self.max_bytes
+        size_triggered = self.max_bytes > 0 and size >= self.max_bytes
         return size_triggered or time_triggered
 
-    def _rotated_path(self) -> str:
-        """A rotation target that does not already exist.
+    def _claim_rotated_path(self) -> str:
+        """Reserve an unused rotation target and return it.
 
-        ``strftime`` only has one-second resolution, so two rotations inside the same
-        second would otherwise rename onto the same path -- silently destroying the
-        first rotated file (and, on Windows, raising).
+        ``strftime`` has one-second resolution, so the timestamp alone does not
+        identify a file: two rotations in the same second would land on the same name.
+        A random token makes the name unique without keeping any state, and each name
+        is *claimed* by creating it exclusively (``O_EXCL``) rather than merely observed
+        to be free, so a concurrent rotation -- in this process or another one -- cannot
+        take the same name between the check and the rename. Under gzip the compressed
+        name is claimed too: it is the file that survives the rotation, so leaving it
+        unclaimed is what let a second rotation overwrite the first one's archive.
         """
-        base = f"{self.file_path}.{time.strftime('%Y-%m-%d_%H-%M-%S')}"
-        candidate = base
-        counter = 0
-        while os.path.exists(candidate):
-            counter += 1
-            candidate = f"{base}.{counter}"
-        return candidate
+        stamp = time.strftime(_ROTATION_STAMP)
+        suffixes = ("", ".gz") if self.compression == "gzip" else ("",)
+        for _ in range(_ROTATION_CLAIM_ATTEMPTS):
+            candidate = f"{self.file_path}.{stamp}.{os.urandom(_ROTATION_TOKEN_BYTES).hex()}"
+            claimed: list[str] = []
+            try:
+                for suffix in suffixes:
+                    # O_EXCL fails if the name exists, so the winner is decided by the
+                    # filesystem rather than by a check we race against.
+                    descriptor = os.open(
+                        candidate + suffix, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o666
+                    )
+                    os.close(descriptor)
+                    claimed.append(candidate + suffix)
+            except FileExistsError:
+                _remove_quietly(claimed)  # release the half-claimed name, then retry
+                continue
+            return candidate
+        raise OSError(f"could not claim a rotation target for {self.file_path!r}")
 
     def _rotate_and_cleanup(self) -> None:
         if not self._should_rotate():
             return
 
-        rotated_path = self._rotated_path()
-        os.rename(self.file_path, rotated_path)
+        rotated_path = self._claim_rotated_path()
+        try:
+            # os.replace, not os.rename: the claimed placeholder is in the way, and
+            # Windows' rename refuses an existing target.
+            os.replace(self.file_path, rotated_path)
+        except FileNotFoundError:
+            # Another process rotated this file first. Its records are safe in its own
+            # archive; leave the placeholders behind and let the next write start fresh.
+            _remove_quietly(f"{rotated_path}{suffix}" for suffix in ("", ".gz"))
+            return
         if self.compression == "gzip":
             compressed_path = f"{rotated_path}.gz"
             with open(rotated_path, "rb") as source, gzip.open(compressed_path, "wb") as target:
@@ -501,17 +556,18 @@ class FileSink(BaseSink):
         if self.retention_count is None:
             return
 
-        # glob.escape: a path containing '[', '*' or '?' would otherwise be read as a pattern.
-        pattern = f"{glob.escape(self.file_path)}.*"
+        # Only files this sink could have written are retention candidates. A plain
+        # ``app.log.*`` match also covers an operator's ``app.log.backup``, another
+        # sink's ``app.log.audit``, and the process-safe ``app.log.lock`` sidecar.
+        directory = os.path.dirname(self.file_path) or os.curdir
         candidates = []
-        lock_path = f"{self.file_path}.lock"
-        for path in glob.glob(pattern):
-            # The process-safe sidecar matches the rotation glob but is not a
-            # rotated log. Deleting it could split two writers across locks.
-            if path in {self.file_path, lock_path}:
-                continue
-            with contextlib.suppress(OSError):  # concurrently removed
-                candidates.append((os.path.getmtime(path), path))
+        with contextlib.suppress(OSError):  # directory replaced underneath us
+            for entry in os.scandir(directory):
+                if not self._rotated_name.fullmatch(entry.name):
+                    continue
+                with contextlib.suppress(OSError):  # concurrently removed
+                    if entry.is_file():
+                        candidates.append((entry.stat().st_mtime, entry.path))
         candidates.sort()
 
         while len(candidates) > self.retention_count:
