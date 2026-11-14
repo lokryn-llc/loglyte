@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import functools
 import inspect
 from collections.abc import Callable
@@ -84,7 +83,7 @@ def _build_wrapper(
         # ContextLogger attaches type, detail and traceback.
         logger_instance.critical(message, exc_info=exc)
 
-    if asyncio.iscoroutinefunction(func):
+    if inspect.iscoroutinefunction(func):
 
         @functools.wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:

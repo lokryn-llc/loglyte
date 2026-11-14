@@ -12,7 +12,8 @@ logger.error("Payment failed", order_id=order_id)
 
 No logger factories, module names, or runtime sink setup are required for ordinary
 application logging. Loglyte buffers records in memory and renders/writes them in
-batches, off the producer's hot path.
+batches, so most logging calls only append a record to the buffer (see
+[Flushing](#flushing) for where the batch work runs).
 
 Python 3.10+. The only conditional dependency is `tomli` on Python 3.10, where TOML
 is not yet in the standard library.
@@ -111,7 +112,8 @@ Supported sink types are `stderr`, `stdout`, and `file`; formats are `text`, `js
 and `logfmt`. Configure all deployment behavior here: levels, redaction, rotation,
 queue flushes, retry behavior, sampling, and overflow policy. `color = "auto"` only
 emits ANSI colour to a TTY; use `"always"` for a local terminal or `"never"` for plain
-text. Sampling and rate limits are enforced while dispatching, never on producer calls.
+text. Sampling and rate limits are applied per sink when a batch is flushed, not as each
+record is logged.
 
 `process_safe = true` serializes complete file batches and rotation with a sidecar
 lock. Enable it only when multiple Python processes write the same file: it has
@@ -119,8 +121,18 @@ unavoidable synchronization overhead. The default is the lowest-latency,
 single-process path; threads are already serialized by Loglyte's dispatcher.
 
 Set `capture_warnings = true` in `[loglyte]` to route Python warnings through the same
-configured sinks. Gzip compression runs after a file rotates, on the dispatcher rather
-than the application thread.
+configured sinks. Gzip compression runs when a file rotates, as part of the flush that
+triggered the rotation.
+
+### Flushing
+
+A background thread flushes buffered records every `flush_interval` seconds
+(`flush_interval = 0` disables it). The
+logging call that brings the buffer to `flush_threshold` records flushes it
+immediately, **on the calling thread**: that call renders and writes the whole batch,
+including any file rotation, gzip compression, and sink retries. Most calls only append
+to the buffer, but that occasional call can take much longer. `logger.shutdown()` and
+interpreter exit also flush.
 
 Rotated files are named `<log>.<timestamp>.<token>`, for example
 `app.log.2026-08-10_14-03-01.9f2c7ab4`, with `.gz` appended when compression is on. The

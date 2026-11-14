@@ -114,7 +114,11 @@ Contents: [Bugs](#bugs) · [Performance](#performance) · [Code quality](#code-q
   (`gzip` case is `xfail(strict=True)`; remove the mark when fixed).
 
 ### B3. A `logger.bind()` scope cannot be re-entered or shared; context can leak
-- [ ] Fix
+- [x] Fix. The context now holds a chain of immutable scope frames instead of a token
+  stored on the `ScopedLogger`, so a scope can be nested and shared by threads and tasks.
+  An out-of-order exit repairs the context, then raises `RuntimeError`. If the body is
+  already raising, the error is attached as a note (a `RuntimeWarning` on 3.10) and the
+  application's exception is not replaced. Regression tests: `tests/test_bind_scope.py`.
 - **Where:** `ScopedLogger.__enter__` / `__exit__` in `loglyte/facade.py`.
 - **Cause:** the scope's context-variable token is stored on the `ScopedLogger`
   instance (`self._scope`). A second `__enter__` overwrites the first.
@@ -140,7 +144,9 @@ Contents: [Bugs](#bugs) · [Performance](#performance) · [Code quality](#code-q
 - **Verify with:** unit tests for nested re-use and for two threads sharing one scope.
 
 ### B4. Deprecated `asyncio.iscoroutinefunction` will break the tests on Python 3.14
-- [ ] Fix
+- [x] Fix. `decorators.py` now uses `inspect.iscoroutinefunction`, which gives the same
+  result for every callable kind checked on 3.10-3.14. The suite passes on 3.10-3.14.
+- [ ] Add 3.14 to the existing CI matrix (currently 3.10–3.13).
 - **Where:** `loglyte/decorators.py` (`_build_wrapper`).
 - **Cause:** `asyncio.iscoroutinefunction` is deprecated from Python 3.14 (removal
   planned for 3.16). It runs when a function is decorated, so users see a
@@ -149,7 +155,12 @@ Contents: [Bugs](#bugs) · [Performance](#performance) · [Code quality](#code-q
 - **Suggested fix:** use `inspect.iscoroutinefunction`. Add 3.14 to the CI matrix.
 
 ### B5. Documentation contradicts behaviour
-- [ ] Fix
+- [x] Fix (documentation only; behaviour unchanged). The `autoload()` docstring now
+  names the stdout default. The README no longer claims flushing is off the hot path;
+  a new "Flushing" section says the call that reaches `flush_threshold` flushes on its
+  own thread, including rotation and gzip. The same claim about sampling was corrected
+  in the README and the `_allows_delivery` docstring. If P1 moves the flush to the
+  background worker, update that section.
 - `config.autoload()` docstring: "leaves the small stderr/stdout-free default untouched",
   but the default sink is `StdoutSink(level="INFO")` (`DispatcherSink.__init__`).
 - README: "renders/writes them in batches, off the producer's hot path" and "Gzip
@@ -168,7 +179,7 @@ Numbers from the container; confirm on the reference machine.
 - [ ] **P1. Batch flush runs on the calling thread.** The call that reaches
   `flush_threshold` formats and writes the whole batch, plus any rotation and gzip.
   p99.9/max latency is 0.5-3.7 ms, against ~2 µs for a typical call. Consider handing the
-  batch to the background worker (and making B5's README wording true).
+  batch to the background worker (and update the README "Flushing" section, see B5).
   *Verify with:* the per-call latency table, `flush`, `rotation-gzip` latency columns.
 - [ ] **P2. `@logger(bind=...)` calls `inspect.Signature.bind()` + `apply_defaults()` on
   every call** (about +12 µs per call). Pre-compute argument positions when decorating.

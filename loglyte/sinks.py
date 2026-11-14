@@ -240,7 +240,7 @@ class BaseSink(ABC):
             self._filters.remove(filter_)
 
     def _allows_delivery(self) -> bool:
-        """Sample and rate-limit on the dispatcher, never on producer calls."""
+        """Sample and rate-limit when a batch is flushed, not as each record is logged."""
         if self._sample_rate < 1 and random.random() >= self._sample_rate:
             return False
         if self._rate_limit is None:

@@ -108,8 +108,8 @@ def load_config(path: str | Path) -> Path:
 def autoload() -> Path | None:
     """Load ``$LOGLYTE_CONFIG`` or ``./loglyte.toml`` once during import.
 
-    Absence is normal and leaves the small stderr/stdout-free default untouched;
-    a path explicitly supplied through the environment is treated as required.
+    Absence is normal and leaves the default in place: ``INFO`` and above, as text, on
+    stdout. A path explicitly supplied through the environment is treated as required.
     """
     configured = os.environ.get(_CONFIG_ENV)
     if configured:

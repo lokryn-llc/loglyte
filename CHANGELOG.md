@@ -30,6 +30,18 @@ All notable changes to Loglyte are documented here.
 
 - Relicense Loglyte from GPL-3.0-only to MIT. Earlier releases retain their
   original license.
+- Fix `logger.bind()` scopes that were re-entered or shared between threads or
+  tasks. They raised `RuntimeError`/`ValueError`, could hide the application's own
+  exception, and could leave bound fields attached to later records (for example on
+  pooled worker threads). A scope exited out of order now repairs the log context
+  before reporting the error.
+- Stop the `DeprecationWarning` on Python 3.14 when decorating a function with
+  `@logger`: use `inspect.iscoroutinefunction` instead of the deprecated
+  `asyncio.iscoroutinefunction`.
+- Correct documentation that contradicted behaviour: the default sink is stdout at
+  `INFO`, and the logging call that reaches `flush_threshold` flushes the batch
+  (rendering, writing, rotation and gzip compression) on its own thread. See the new
+  README "Flushing" section.
 
 ## 1.0.0 - 2026-08-10
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, ParamSpec, TypeVar, overload
 
-from loglyte.context import bind as bind_context
+from loglyte.context import pop_scope, push_scope
 from loglyte.core import ContextLogger, ExcInfo
 from loglyte.decorators import decorate
 from loglyte.sinks import shutdown as shutdown_dispatcher
@@ -23,14 +23,17 @@ def _bind_names(names: tuple[str, ...] | list[str]) -> tuple[str, ...]:
 
 
 class ScopedLogger(ContextLogger):
-    """A logger with fields that can also be used as a scoped context manager."""
+    """A logger with fields that can also be used as a scoped context manager.
 
-    __slots__ = ("_fields", "_scope")
+    The scope keeps no per-entry state on the instance, so one ``ScopedLogger`` can be
+    re-entered (nested) and shared by any number of threads and tasks at once.
+    """
+
+    __slots__ = ("_fields",)
 
     def __init__(self, fields: dict[str, Any]):
         super().__init__("loglyte")
         self._fields = dict(fields)
-        self._scope: Any = None
 
     def _push(self, level: str, msg: str, extra: dict[str, Any], exc_info: ExcInfo = None) -> None:
         super()._push(level, msg, {**self._fields, **extra}, exc_info)
@@ -39,15 +42,11 @@ class ScopedLogger(ContextLogger):
         return ScopedLogger({**self._fields, **fields})
 
     def __enter__(self) -> ScopedLogger:
-        self._scope = bind_context(**self._fields)
-        self._scope.__enter__()
+        push_scope(self._fields, self)
         return self
 
-    def __exit__(self, *args: Any) -> None:
-        if self._scope is None:
-            raise RuntimeError("logger binding scope was not entered")
-        self._scope.__exit__(*args)
-        self._scope = None
+    def __exit__(self, exc_type: Any, exc: BaseException | None, tb: Any) -> None:
+        pop_scope(self, exc)
 
 
 class Logger(ContextLogger):
